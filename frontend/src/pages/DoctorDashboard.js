@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { appointmentAPI } from '../services/api';
+import { appointmentAPI, prescriptionAPI } from '../services/api';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 
 const DoctorDashboard = () => {
@@ -17,21 +17,27 @@ const DoctorDashboard = () => {
   const [prescriptionNotes, setPrescriptionNotes] = useState('');
   const [viewingPrescription, setViewingPrescription] = useState(null);
   const [showViewPrescriptionModal, setShowViewPrescriptionModal] = useState(false);
-
-  // Store prescriptions in state (in a real app, this would come from your backend)
-  const [prescriptions, setPrescriptions] = useState([]);
+  const [doctorInfo, setDoctorInfo] = useState(null);
 
   useEffect(() => {
-    fetchAppointments();
+    const user = JSON.parse(localStorage.getItem('user'));
+    if (user) {
+      setDoctorInfo({
+        name: user.name,
+        profileId: user.profileId
+      });
+      fetchAppointments(user.profileId);
+    }
   }, []);
 
-  const fetchAppointments = async () => {
+  const fetchAppointments = async (doctorId) => {
     try {
       setLoading(true);
-      const response = await appointmentAPI.getAll();
+      const response = await appointmentAPI.getAll({ doctorId });
       setAppointments(response.data);
     } catch (error) {
       console.error('Error fetching appointments:', error);
+      alert('Failed to load appointments');
     } finally {
       setLoading(false);
     }
@@ -53,41 +59,55 @@ const DoctorDashboard = () => {
     setMedicines(medicines.filter(med => med.id !== id));
   };
 
-  const handleSavePrescription = async () => {
+ const handleSavePrescription = async () => {
+  try {
+    console.log("🟡 Starting complete appointment process...");
+    console.log("Selected appointment:", selectedAppointment);
+    console.log("Medicines:", medicines);
+    console.log("Notes:", prescriptionNotes);
+
+    // First mark appointment as completed
+    console.log("🟡 Calling appointmentAPI.complete...");
+    const completeResponse = await appointmentAPI.complete(selectedAppointment.id);
+    console.log("✅ Appointment completed:", completeResponse.data);
+
+    // Create prescription
+    console.log("🟡 Calling prescriptionAPI.create...");
+    const prescriptionResponse = await prescriptionAPI.create({
+      appointmentId: selectedAppointment.id,
+      diagnosis: prescriptionNotes,
+      notes: prescriptionNotes,
+      medicines: medicines
+    });
+    console.log("✅ Prescription created:", prescriptionResponse.data);
+
+    // Close modal and refresh
+    setShowPrescriptionModal(false);
+    setMedicines([]);
+    setPrescriptionNotes('');
+    setSelectedAppointment(null);
+    
+    // Refresh appointments
+    const user = JSON.parse(localStorage.getItem('user'));
+    fetchAppointments(user.profileId);
+    
+    alert('Appointment completed and prescription saved successfully!');
+    
+  } catch (error) {
+    console.error('❌ Error completing appointment:', error);
+    console.error('❌ Error response:', error.response);
+    alert(`Failed to complete appointment: ${error.response?.data?.message || error.message}`);
+  }
+};
+
+  const handleViewPrescription = async (appointment) => {
     try {
-      // First mark appointment as completed
-      await appointmentAPI.markCompleted(selectedAppointment.id);
-      
-      // Create prescription data - make sure to include medicines
-      const prescriptionData = {
-        id: Date.now().toString(),
-        appointmentId: selectedAppointment.id,
-        patientId: selectedAppointment.patientId,
-        patientName: selectedAppointment.patientName,
-        age: selectedAppointment.age,
-        gender: selectedAppointment.gender,
-        reason: selectedAppointment.reason,
-        date: selectedAppointment.date,
-        time: selectedAppointment.time,
-        medicines: [...medicines], // Make sure to include the medicines array
-        notes: prescriptionNotes,
-        createdAt: new Date().toISOString()
-      };
-      
-      console.log('Saving prescription with medicines:', prescriptionData.medicines); // Debug log
-      
-      // Save prescription to local state (in real app, this would be an API call)
-      setPrescriptions(prev => [...prev, prescriptionData]);
-      
-      // Close modal and refresh appointments
-      setShowPrescriptionModal(false);
-      setMedicines([]);
-      setPrescriptionNotes('');
-      setSelectedAppointment(null);
-      fetchAppointments();
-      
+      const response = await prescriptionAPI.getByAppointment(appointment.id);
+      setViewingPrescription(response.data);
+      setShowViewPrescriptionModal(true);
     } catch (error) {
-      console.error('Error completing appointment:', error);
+      console.error('Error fetching prescription:', error);
+      alert('Prescription not found for this appointment');
     }
   };
 
@@ -99,23 +119,13 @@ const DoctorDashboard = () => {
     setNewMedicine({ name: '', dosage: '', duration: '' });
   };
 
-  const handleViewPrescription = (appointment) => {
-    // Find the prescription for this appointment
-    const prescription = prescriptions.find(p => p.appointmentId === appointment.id);
-    console.log('Found prescription:', prescription); // Debug log
-    if (prescription) {
-      setViewingPrescription(prescription);
-      setShowViewPrescriptionModal(true);
-    }
-  };
-
   const handleCloseViewPrescription = () => {
     setShowViewPrescriptionModal(false);
     setViewingPrescription(null);
   };
 
-  const upcomingAppointments = appointments.filter(apt => apt.status === 'scheduled');
-  const completedAppointments = appointments.filter(apt => apt.status === 'completed');
+  const upcomingAppointments = appointments.filter(apt => apt.status === 'Scheduled');
+  const completedAppointments = appointments.filter(apt => apt.status === 'Completed');
 
   if (loading) {
     return <LoadingSpinner />;
@@ -127,15 +137,13 @@ const DoctorDashboard = () => {
       {showPrescriptionModal && selectedAppointment && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            {/* Modal Header */}
             <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
               <h2 className="text-xl font-bold text-gray-900">Create Prescription</h2>
               <p className="text-gray-600 mt-1">
-                Complete appointment and create prescription for {selectedAppointment.patientName} ({selectedAppointment.patientId})
+                Complete appointment and create prescription for {selectedAppointment.patientName}
               </p>
             </div>
 
-            {/* Compact Patient Information */}
             <div className="p-6 border-b border-gray-200">
               <div className="bg-gray-50 rounded-lg p-6">
                 <div className="grid grid-cols-2 gap-6">
@@ -163,11 +171,9 @@ const DoctorDashboard = () => {
               </div>
             </div>
 
-            {/* Add Medicine Section */}
             <div className="p-6 border-b border-gray-200">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Add Medicine</h3>
               
-              {/* Medicine Input Form */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Medicine Name</label>
@@ -209,7 +215,6 @@ const DoctorDashboard = () => {
                 Add Medicine to Prescription
               </button>
 
-              {/* Medicine List */}
               {medicines.length > 0 && (
                 <div className="mt-6">
                   <h4 className="text-md font-semibold text-gray-900 mb-3">Added Medicines</h4>
@@ -243,7 +248,6 @@ const DoctorDashboard = () => {
               )}
             </div>
 
-            {/* Prescription Notes */}
             <div className="p-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Prescription Notes</h3>
               <textarea
@@ -255,7 +259,6 @@ const DoctorDashboard = () => {
               />
             </div>
 
-            {/* Modal Footer */}
             <div className="bg-gray-50 px-6 py-4 border-t border-gray-200 flex justify-end space-x-3">
               <button
                 onClick={handleCancel}
@@ -278,15 +281,13 @@ const DoctorDashboard = () => {
       {showViewPrescriptionModal && viewingPrescription && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            {/* Modal Header */}
             <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
               <h2 className="text-xl font-bold text-gray-900">Prescription Details</h2>
               <p className="text-gray-600 mt-1">
-                Prescription for {viewingPrescription.patientName} ({viewingPrescription.patientId})
+                Prescription for {viewingPrescription.patientName}
               </p>
             </div>
 
-            {/* Patient Information */}
             <div className="p-6 border-b border-gray-200">
               <div className="bg-gray-50 rounded-lg p-6">
                 <div className="grid grid-cols-2 gap-6">
@@ -307,14 +308,15 @@ const DoctorDashboard = () => {
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Appointment Date</label>
-                      <p className="text-gray-900 font-semibold text-lg">{viewingPrescription.date} at {viewingPrescription.time}</p>
+                      <p className="text-gray-900 font-semibold text-lg">
+                        {new Date(viewingPrescription.appointmentDate).toLocaleDateString()} at {viewingPrescription.appointmentTime}
+                      </p>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Medicines List */}
             <div className="p-6 border-b border-gray-200">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Prescribed Medicines</h3>
               {viewingPrescription.medicines && viewingPrescription.medicines.length > 0 ? (
@@ -335,6 +337,12 @@ const DoctorDashboard = () => {
                           <p className="text-gray-900 font-semibold">{medicine.duration}</p>
                         </div>
                       </div>
+                      {medicine.instructions && (
+                        <div className="mt-2">
+                          <span className="text-sm font-medium text-gray-500">Instructions</span>
+                          <p className="text-gray-900">{medicine.instructions}</p>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -343,7 +351,6 @@ const DoctorDashboard = () => {
               )}
             </div>
 
-            {/* Prescription Notes */}
             <div className="p-6 border-b border-gray-200">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Doctor's Notes</h3>
               <div className="bg-gray-50 rounded-lg p-4">
@@ -353,7 +360,6 @@ const DoctorDashboard = () => {
               </div>
             </div>
 
-            {/* Modal Footer */}
             <div className="bg-gray-50 px-6 py-4 border-t border-gray-200 flex justify-end">
               <button
                 onClick={handleCloseViewPrescription}
@@ -368,16 +374,15 @@ const DoctorDashboard = () => {
 
       {/* Main Content */}
       <div className="p-6">
-        {/* Welcome Message - Updated with left alignment and doctor info on right */}
         <div className="mb-8">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between">
-            {/* Left side - Welcome message */}
             <div className="text-left mb-4 md:mb-0">
               <h1 className="text-3xl font-bold text-gray-900 mb-2">Doctor Dashboard</h1>
-              <p className="text-gray-600 text-lg">Welcome back, Dr. Sarah Johnson</p>
+              <p className="text-gray-600 text-lg">
+                Welcome back, {doctorInfo?.name || 'Doctor'}
+              </p>
             </div>
             
-            {/* Right side - Doctor specialty and department */}
             <div className="bg-white rounded-lg shadow p-6 text-center md:text-right">
               <div className="text-2xl font-bold text-blue-600 mb-2">Cardiology</div>
               <div className="text-gray-700 font-medium">Cardiovascular Department</div>
@@ -393,7 +398,11 @@ const DoctorDashboard = () => {
           </div>
           <div className="bg-white rounded-lg shadow p-6">
             <h3 className="text-lg font-semibold text-gray-700 mb-2">Completed Today</h3>
-            <p className="text-3xl font-bold text-green-600">0</p>
+            <p className="text-3xl font-bold text-green-600">
+              {completedAppointments.filter(apt => 
+                new Date(apt.date).toDateString() === new Date().toDateString()
+              ).length}
+            </p>
           </div>
           <div className="bg-white rounded-lg shadow p-6">
             <h3 className="text-lg font-semibold text-gray-700 mb-2">Total Completed</h3>
@@ -443,7 +452,9 @@ const DoctorDashboard = () => {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                   <div className="bg-gray-50 rounded-lg p-4">
                     <span className="text-sm font-medium text-gray-500">Date</span>
-                    <p className="text-gray-900 font-semibold">{appointment.date}</p>
+                    <p className="text-gray-900 font-semibold">
+                      {new Date(appointment.date).toLocaleDateString()}
+                    </p>
                   </div>
                   <div className="bg-gray-50 rounded-lg p-4">
                     <span className="text-sm font-medium text-gray-500">Time</span>
@@ -464,49 +475,44 @@ const DoctorDashboard = () => {
               </div>
             ))
           ) : (
-            completedAppointments.map((appointment) => {
-              const hasPrescription = prescriptions.some(p => p.appointmentId === appointment.id);
-              
-              return (
-                <div key={appointment.id} className="bg-white rounded-lg shadow-md p-6 border-l-4 border-green-500">
-                  <div className="flex justify-between items-start mb-4">
-                    <div>
-                      <h3 className="text-xl font-semibold text-gray-900">{appointment.patientName}</h3>
-                      <p className="text-gray-600">{appointment.age} years • {appointment.gender}</p>
-                      <p className="text-sm text-gray-500">Patient ID: {appointment.patientId}</p>
-                    </div>
-                    <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
-                      Completed
-                    </span>
+            completedAppointments.map((appointment) => (
+              <div key={appointment.id} className="bg-white rounded-lg shadow-md p-6 border-l-4 border-green-500">
+                <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <h3 className="text-xl font-semibold text-gray-900">{appointment.patientName}</h3>
+                    <p className="text-gray-600">{appointment.age} years • {appointment.gender}</p>
+                    <p className="text-sm text-gray-500">Patient ID: {appointment.patientId}</p>
                   </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                    <div className="bg-gray-50 rounded-lg p-4">
-                      <span className="text-sm font-medium text-gray-500">Date</span>
-                      <p className="text-gray-900 font-semibold">{appointment.date}</p>
-                    </div>
-                    <div className="bg-gray-50 rounded-lg p-4">
-                      <span className="text-sm font-medium text-gray-500">Time</span>
-                      <p className="text-gray-900 font-semibold">{appointment.time}</p>
-                    </div>
-                    <div className="bg-gray-50 rounded-lg p-4">
-                      <span className="text-sm font-medium text-gray-500">Reason for Visit</span>
-                      <p className="text-gray-900 font-semibold">{appointment.reason}</p>
-                    </div>
-                  </div>
-
-                  {/* View Prescription Button */}
-                  {hasPrescription && (
-                    <button
-                      onClick={() => handleViewPrescription(appointment)}
-                      className="w-full bg-black hover:bg-gray-800 text-white font-medium py-3 px-6 rounded-lg transition duration-200"
-                    >
-                      View Prescription
-                    </button>
-                  )}
+                  <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
+                    Completed
+                  </span>
                 </div>
-              );
-            })
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <span className="text-sm font-medium text-gray-500">Date</span>
+                    <p className="text-gray-900 font-semibold">
+                      {new Date(appointment.date).toLocaleDateString()}
+                    </p>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <span className="text-sm font-medium text-gray-500">Time</span>
+                    <p className="text-gray-900 font-semibold">{appointment.time}</p>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <span className="text-sm font-medium text-gray-500">Reason for Visit</span>
+                    <p className="text-gray-900 font-semibold">{appointment.reason}</p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => handleViewPrescription(appointment)}
+                  className="w-full bg-black hover:bg-gray-800 text-white font-medium py-3 px-6 rounded-lg transition duration-200"
+                >
+                  View Prescription
+                </button>
+              </div>
+            ))
           )}
         </div>
 

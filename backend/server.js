@@ -1,38 +1,43 @@
-// ==========================================================
-// File: server.js
-// Description: Main entry point for backend server (Express app)
-// Created by: Faraz & Ashhal
-// ==========================================================
-
 const express = require("express");
 const bodyParser = require("body-parser");
 const cors = require("cors");
 
 const app = express();
-const PORT = 5000; // React runs on 3000, backend on 5000
+const PORT = 5000;
 
-// Middleware setup
+// Middleware
 app.use(cors());
 app.use(bodyParser.json());
 
 // Import routes
-const doctorRoutes = require("./routes/doctors");
-const patientRoutes = require("./routes/patients");
-const appointmentRoutes = require("./routes/appointments");
-const billRoutes = require("./routes/bills");
+const authRoutes = require("./routes/authRoutes");
+const doctorRoutes = require("./routes/doctorRoutes");
+const patientRoutes = require("./routes/patientRoutes");
+const appointmentRoutes = require("./routes/appointmentRoutes");
+const departmentRoutes = require("./routes/departmentRoutes");
+const prescriptionRoutes = require("./routes/prescriptionRoutes");
+const billRoutes = require("./routes/billRoutes");
 
 // Use routes
+app.use("/api/auth", authRoutes);
 app.use("/api/doctors", doctorRoutes);
 app.use("/api/patients", patientRoutes);
 app.use("/api/appointments", appointmentRoutes);
+app.use("/api/departments", departmentRoutes);
+app.use("/api/prescriptions", prescriptionRoutes);
 app.use("/api/bills", billRoutes);
 
-// Default route
+// Health check
 app.get("/", (req, res) => {
-  res.send("🏥 Hospital Backend API is running...");
+  res.json({ message: "🏥 Hospital Management System API", status: "Running" });
 });
 
-// Start the server
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ success: false, message: "Internal Server Error" });
+});
+
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
 });

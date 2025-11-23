@@ -1,103 +1,86 @@
-// Mock data for development - replace with actual API calls
-const mockAppointments = [
-  {
-    id: 1,
-    patientName: "John Smith",
-    age: 45,
-    gender: "Male",
-    patientId: "P001",
-    date: "Sat, Oct 25, 2025",
-    time: "10:00 AM",
-    reason: "Regular Checkup",
-    status: "scheduled"
-  },
-  {
-    id: 2,
-    patientName: "Emily Davis",
-    age: 32,
-    gender: "Female",
-    patientId: "P002",
-    date: "Mon, Oct 27, 2025",
-    time: "2:30 PM",
-    reason: "Follow-up Visit",
-    status: "scheduled"
-  },
-  {
-    id: 3,
-    patientName: "Michael Brown",
-    age: 58,
-    gender: "Male",
-    patientId: "P003",
-    date: "Tue, Oct 28, 2025",
-    time: "11:15 AM",
-    reason: "Consultation",
-    status: "scheduled"
-  }
-];
+import axios from 'axios';
 
-const mockPatients = [
-  {
-    id: 1,
-    name: "John Smith",
-    age: 45,
-    gender: "Male",
-    patientId: "P001",
-    phone: "+1234567890",
-    email: "john.smith@email.com",
-    address: "123 Main St, City, State"
-  },
-  {
-    id: 2,
-    name: "Emily Davis",
-    age: 32,
-    gender: "Female", 
-    patientId: "P002",
-    phone: "+1234567891",
-    email: "emily.davis@email.com",
-    address: "456 Oak Ave, City, State"
-  }
-];
+const API_BASE_URL = 'http://localhost:5000/api';
 
-// Simulate API delay
-const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
-export const appointmentAPI = {
-  getAll: async () => {
-    await delay(500);
-    return { data: mockAppointments };
+// Create axios instance with better debugging
+const api = axios.create({
+  baseURL: API_BASE_URL,
+  headers: {
+    'Content-Type': 'application/json',
   },
-  
-  markCompleted: async (id) => {
-    await delay(300);
-    const appointment = mockAppointments.find(apt => apt.id === id);
-    if (appointment) {
-      appointment.status = "completed";
-    }
-    return { data: appointment };
+});
+
+// Add request logging
+api.interceptors.request.use(
+  (config) => {
+    console.log(`🚀 Making ${config.method?.toUpperCase()} request to: ${config.url}`);
+    console.log('📦 Request data:', config.data);
+    return config;
+  },
+  (error) => {
+    console.error('❌ Request error:', error);
+    return Promise.reject(error);
   }
+);
+
+// Add response logging
+api.interceptors.response.use(
+  (response) => {
+    console.log(`✅ ${response.config.method?.toUpperCase()} ${response.config.url} success:`, response.data);
+    return response;
+  },
+  (error) => {
+    console.error(`❌ ${error.config?.method?.toUpperCase()} ${error.config?.url} failed:`, error.response?.data || error.message);
+    return Promise.reject(error);
+  }
+);
+
+// API service functions
+export const authAPI = {
+  login: (credentials) => api.post('/auth/login', credentials),
+  signup: (userData) => api.post('/auth/signup', userData),
+};
+
+export const doctorAPI = {
+  getAll: () => api.get('/doctors'),
+  getById: (id) => api.get(`/doctors/${id}`),
+  create: (doctorData) => api.post('/doctors', doctorData),
+  update: (id, doctorData) => api.put(`/doctors/${id}`, doctorData),
+  delete: (id) => api.delete(`/doctors/${id}`),
 };
 
 export const patientAPI = {
-  getAll: async () => {
-    await delay(500);
-    return { data: mockPatients };
-  },
-  
-  create: async (patientData) => {
-    await delay(300);
-    const newPatient = {
-      id: mockPatients.length + 1,
-      ...patientData,
-      patientId: `P00${mockPatients.length + 1}`
-    };
-    mockPatients.push(newPatient);
-    return { data: newPatient };
-  }
+  getAll: () => api.get('/patients'),
+  getById: (id) => api.get(`/patients/${id}`),
+  update: (id, patientData) => api.put(`/patients/${id}`, patientData),
+};
+
+export const appointmentAPI = {
+  getAll: (params) => api.get('/appointments', { params }),
+  create: (appointmentData) => api.post('/appointments', appointmentData),
+  complete: (id) => api.put(`/appointments/${id}/complete`),
+  cancel: (id) => api.put(`/appointments/${id}/cancel`),
+  getAvailability: (doctorId, date) => 
+    api.get('/appointments/availability', { params: { doctorId, date } }),
+};
+
+export const departmentAPI = {
+  getAll: () => api.get('/departments'),
+  getStats: (id) => api.get(`/departments/${id}/stats`),
+  create: (departmentData) => api.post('/departments', departmentData),
+  update: (id, departmentData) => api.put(`/departments/${id}`, departmentData),
+  delete: (id) => api.delete(`/departments/${id}`),
 };
 
 export const prescriptionAPI = {
-  create: async (prescriptionData) => {
-    await delay(300);
-    return { data: { id: Date.now(), ...prescriptionData } };
-  }
+  create: (prescriptionData) => api.post('/prescriptions', prescriptionData),
+  getByAppointment: (appointmentId) => api.get(`/prescriptions/appointment/${appointmentId}`),
 };
+
+export const billAPI = {
+  getAll: (params) => api.get('/bills', { params }),
+  pay: (id) => api.put(`/bills/${id}/pay`),
+  getPatientSummary: (patientId) => api.get(`/bills/patient/${patientId}/summary`),
+};
+
+export default api;
