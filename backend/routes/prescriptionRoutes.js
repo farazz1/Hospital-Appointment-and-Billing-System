@@ -59,7 +59,7 @@ router.post("/", async (req, res) => {
   }
 });
 
-// Get prescription by appointment ID - ADD DEBUG
+// Get prescription by appointment ID - CLOB FIX
 router.get("/appointment/:appointmentId", async (req, res) => {
   let connection;
   try {
@@ -68,12 +68,21 @@ router.get("/appointment/:appointmentId", async (req, res) => {
     
     connection = await getConnection();
 
-    // Get prescription details
+    // Use DBMS_LOB.SUBSTR to convert CLOB to VARCHAR2 at database level
     const prescriptionResult = await connection.execute(
-      `SELECT p.prescription_id, p.diagnosis, p.notes, p.created_at,
-              a.appointment_date, a.appointment_time,
-              pat.name as patient_name, pat.patient_id, pat.date_of_birth, pat.gender,
-              doc.name as doctor_name, doc.specialization
+      `SELECT 
+         p.prescription_id, 
+         NVL(DBMS_LOB.SUBSTR(p.diagnosis, 4000, 1), '') as diagnosis,
+         NVL(DBMS_LOB.SUBSTR(p.notes, 4000, 1), '') as notes,
+         TO_CHAR(p.created_at, 'YYYY-MM-DD HH24:MI:SS') as created_at,
+         TO_CHAR(a.appointment_date, 'YYYY-MM-DD') as appointment_date, 
+         a.appointment_time,
+         pat.name as patient_name, 
+         pat.patient_id, 
+         TO_CHAR(pat.date_of_birth, 'YYYY-MM-DD') as date_of_birth, 
+         pat.gender,
+         doc.name as doctor_name, 
+         doc.specialization
        FROM prescriptions p
        JOIN appointments a ON p.appointment_id = a.appointment_id
        JOIN patients pat ON a.patient_id = pat.patient_id
@@ -83,14 +92,11 @@ router.get("/appointment/:appointmentId", async (req, res) => {
       { outFormat: require('oracledb').OBJECT }
     );
 
-    console.log("🔍 Prescription query result:", prescriptionResult.rows);
-
-    if (prescriptionResult.rows.length === 0) {
-      console.log("❌ No prescription found for appointment:", appointmentId);
+    if (!prescriptionResult.rows || prescriptionResult.rows.length === 0) {
       return res.status(404).json({ error: "Prescription not found for this appointment" });
     }
 
-    const prescription = prescriptionResult.rows[0];
+    const p = prescriptionResult.rows[0];
 
     // Get medicines
     const medicinesResult = await connection.execute(
@@ -98,54 +104,81 @@ router.get("/appointment/:appointmentId", async (req, res) => {
        FROM prescription_medicines
        WHERE prescription_id = :prescriptionId
        ORDER BY medicine_id`,
-      { prescriptionId: prescription.PRESCRIPTION_ID },
+      { prescriptionId: p.PRESCRIPTION_ID },
       { outFormat: require('oracledb').OBJECT }
     );
 
-    console.log("✅ Found prescription with medicines:", medicinesResult.rows.length);
+    // Build response - values should now be simple strings
+    const response = {
+      prescriptionId: p.PRESCRIPTION_ID,
+      diagnosis: p.DIAGNOSIS,  // Now a string instead of CLOB object
+      notes: p.NOTES,          // Now a string instead of CLOB object
+      createdAt: p.CREATED_AT,
+      appointmentDate: p.APPOINTMENT_DATE,
+      appointmentTime: p.APPOINTMENT_TIME,
+      patientName: p.PATIENT_NAME,
+      patientId: p.PATIENT_ID,
+      age: calculateAge(p.DATE_OF_BIRTH),
+      gender: p.GENDER,
+      doctorName: p.DOCTOR_NAME,
+      specialization: p.SPECIALIZATION,
+      medicines: []
+    };
 
-    res.json({
-      prescriptionId: prescription.PRESCRIPTION_ID,
-      diagnosis: prescription.DIAGNOSIS,
-      notes: prescription.NOTES,
-      createdAt: prescription.CREATED_AT,
-      appointmentDate: prescription.APPOINTMENT_DATE,
-      appointmentTime: prescription.APPOINTMENT_TIME,
-      patientName: prescription.PATIENT_NAME,
-      patientId: prescription.PATIENT_ID,
-      age: calculateAge(prescription.DATE_OF_BIRTH),
-      gender: prescription.GENDER,
-      doctorName: prescription.DOCTOR_NAME,
-      specialization: prescription.SPECIALIZATION,
-      medicines: medicinesResult.rows.map(med => ({
-        name: med.MEDICINE_NAME,
-        dosage: med.DOSAGE,
-        duration: med.DURATION,
-        instructions: med.INSTRUCTIONS
-      }))
-    });
+    // Add medicines
+    if (medicinesResult.rows) {
+      medicinesResult.rows.forEach(med => {
+        response.medicines.push({
+          name: med.MEDICINE_NAME,
+          dosage: med.DOSAGE,
+          duration: med.DURATION,
+          instructions: med.INSTRUCTIONS
+        });
+      });
+    }
+
+    console.log("✅ FINAL DATA AFTER CLOB CONVERSION:");
+    console.log("Diagnosis:", response.diagnosis, "Type:", typeof response.diagnosis);
+    console.log("Notes:", response.notes, "Type:", typeof response.notes);
+    
+    // Test JSON serialization
+    try {
+      JSON.stringify(response);
+      console.log("✅ Response can be serialized to JSON");
+    } catch (e) {
+      console.log("❌ JSON serialization failed");
+    }
+
+    // Send response
+    res.setHeader('Content-Type', 'application/json');
+    res.send(JSON.stringify(response));
 
   } catch (error) {
     console.error("❌ Error fetching prescription:", error);
-    res.status(500).json({ error: "Failed to fetch prescription", details: error.message });
+    res.status(500).json({ error: "Failed to fetch prescription" });
   } finally {
-    if (connection) {
-      try { await connection.close(); } catch (err) { console.error(err); }
-    }
+    if (connection) await connection.close();
   }
 });
 
-function calculateAge(dateOfBirth) {
-  const today = new Date();
-  const birthDate = new Date(dateOfBirth);
-  let age = today.getFullYear() - birthDate.getFullYear();
-  const monthDiff = today.getMonth() - birthDate.getMonth();
+function calculateAge(dateOfBirthString) {
+  if (!dateOfBirthString) return 0;
   
-  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-    age--;
+  try {
+    const today = new Date();
+    const birthDate = new Date(dateOfBirthString);
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+    
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+      age--;
+    }
+    
+    return age;
+  } catch (error) {
+    console.error("Error calculating age:", error);
+    return 0;
   }
-  
-  return age;
 }
 
 module.exports = router;
