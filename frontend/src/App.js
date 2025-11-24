@@ -2,8 +2,8 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout/Layout';
 import LandingPage from './pages/LandingPage';
-import Login from './pages/Login';  // Changed from 'login' to 'Login'
-import Signup from './pages/Signup'; // Changed from 'signup' to 'Signup'
+import Login from './pages/Login'; 
+import Signup from './pages/Signup'; 
 import DoctorDashboard from './pages/DoctorDashboard';
 import PatientManagement from './pages/PatientDashboard';
 import AdminDashboard from './pages/AdminDashboard';
