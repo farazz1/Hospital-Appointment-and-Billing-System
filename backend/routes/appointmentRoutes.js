@@ -65,7 +65,6 @@ router.get("/", async (req, res) => {
   }
 });
 
-// Book new appointment - FIXED VERSION
 router.post("/", async (req, res) => {
   let connection;
   try {
@@ -74,15 +73,15 @@ router.post("/", async (req, res) => {
     
     connection = await getConnection();
 
-    // FIX: Changed :date to :apptDate to avoid reserved keyword
+    // Try the insert
     const result = await connection.execute(
-      `INSERT INTO appointments (appointment_id, patient_id, doctor_id, appointment_date, appointment_time, reason)
-       VALUES (seq_appointments.NEXTVAL, :patientId, :doctorId, TO_DATE(:apptDate, 'YYYY-MM-DD'), :time, :reason)
+      `INSERT INTO appointments (appointment_id, patient_id, doctor_id, appointment_date, appointment_time, reason, status)
+       VALUES (SEQ_APPOINTMENTS.NEXTVAL, :patientId, :doctorId, TO_DATE(:apptDate, 'YYYY-MM-DD'), :time, :reason, 'Scheduled')
        RETURNING appointment_id INTO :appointmentId`,
       {
         patientId: parseInt(patientId),
         doctorId: parseInt(doctorId),
-        apptDate: date,  // Changed from :date to :apptDate
+        apptDate: date,
         time,
         reason,
         appointmentId: { type: require('oracledb').NUMBER, dir: require('oracledb').BIND_OUT }
@@ -90,7 +89,6 @@ router.post("/", async (req, res) => {
     );
 
     await connection.commit();
-    
     console.log("✅ Appointment booked successfully, ID:", result.outBinds.appointmentId[0]);
     
     res.json({ 
@@ -103,21 +101,40 @@ router.post("/", async (req, res) => {
     console.error("❌ Error booking appointment:", error);
     if (connection) await connection.rollback();
     
+    // IMPROVED ERROR HANDLING FOR THE TRIGGER
+    let userMessage = "Failed to book appointment";
+    
+    // Check for the specific trigger error
     if (error.message.includes('20001')) {
-      res.status(400).json({ success: false, message: "Doctor is not available at this time" });
-    } else {
-      res.status(500).json({ 
-        success: false, 
-        message: "Failed to book appointment", 
-        error: error.message 
-      });
+      // Extract the actual message from the trigger
+      userMessage = extractTriggerMessage(error.message);
+    } else if (error.message.includes('ORA-00001')) {
+      userMessage = "This time slot is no longer available. Please choose a different time.";
     }
+    
+    res.status(500).json({ 
+      success: false, 
+      message: userMessage,
+      error: error.message 
+    });
   } finally {
     if (connection) {
       try { await connection.close(); } catch (err) { console.error(err); }
     }
   }
 });
+
+// Helper function to extract the trigger message
+function extractTriggerMessage(errorMessage) {
+  // Oracle error format: ORA-20001: Doctor already has an appointment at this time
+  const match = errorMessage.match(/ORA-20001:\s*(.*)/);
+  if (match && match[1]) {
+    return match[1]; // Returns "Doctor already has an appointment at this time"
+  }
+  
+  // Fallback if regex doesn't match
+  return "Doctor already has an appointment at this time. Please choose a different time slot.";
+}
 
 // Mark appointment as completed
 router.put("/:id/complete", async (req, res) => {
