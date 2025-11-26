@@ -20,7 +20,7 @@ const AdminDashboard = () => {
   const [showEditDoctor, setShowEditDoctor] = useState(false);
   const [editingDoctor, setEditingDoctor] = useState(null);
   const [newDoctor, setNewDoctor] = useState({
-    name: '', specialization: '', departmentId: '', email: '', phone: '', experience: '', consultationFee: '', status: 'Active'
+    name: '', specialization: '', departmentId: '', licenseNumber: '', email: '', phone: '', experience: '', consultationFee: '', status: 'Active'
   });
 
   // Data states
@@ -117,6 +117,12 @@ const AdminDashboard = () => {
   // Doctor functions
   const handleAddDoctor = async () => {
     try {
+      // Validate license number for new doctors
+      if (!newDoctor.licenseNumber) {
+        alert('License number is required for new doctors');
+        return;
+      }
+      
       await doctorAPI.create(newDoctor);
       setShowAddDoctor(false);
       resetDoctorForm();
@@ -124,7 +130,13 @@ const AdminDashboard = () => {
       alert('Doctor added successfully!');
     } catch (error) {
       console.error('Error adding doctor:', error);
-      alert('Failed to add doctor');
+      if (error.response?.data?.error?.includes('License number already exists')) {
+        alert('License number already exists. Please use a different license number.');
+      } else if (error.response?.data?.error?.includes('Email already exists')) {
+        alert('Email already exists. Please use a different email.');
+      } else {
+        alert('Failed to add doctor');
+      }
     }
   };
 
@@ -139,6 +151,7 @@ const AdminDashboard = () => {
       experience: doctor.experience.replace(' years', ''),
       consultationFee: doctor.consultationFee.toString(),
       status: doctor.status
+      // Note: licenseNumber is intentionally excluded for edits
     });
     setShowEditDoctor(true);
   };
@@ -189,7 +202,7 @@ const AdminDashboard = () => {
   };
 
   const resetDoctorForm = () => {
-    setNewDoctor({ name: '', specialization: '', departmentId: '', email: '', phone: '', experience: '', consultationFee: '', status: 'Active' });
+    setNewDoctor({ name: '', specialization: '', departmentId: '', licenseNumber: '', email: '', phone: '', experience: '', consultationFee: '', status: 'Active' });
     setShowAddDoctor(false);
     setShowEditDoctor(false);
     setEditingDoctor(null);
@@ -205,10 +218,6 @@ const AdminDashboard = () => {
   if (loading) {
     return <LoadingSpinner />;
   }
-
-  // Rest of the AdminDashboard JSX remains largely the same as your original
-  // [Include all the JSX from your original AdminDashboard.js here]
-  // Just update the data sources to use the real data from state
 
   return (
     <div className="flex min-h-screen bg-gray-50">
@@ -618,64 +627,90 @@ const AdminDashboard = () => {
             </div>
           )}
 
-          {/* Add/Edit Doctor Modal */}
+          {/* Add/Edit Doctor Modal - REDESIGNED WITH 2 FIELDS PER ROW */}
           {(showAddDoctor || showEditDoctor) && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-              <div className="bg-white rounded-xl shadow-lg max-w-md w-full p-6">
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto">
+              <div className="bg-white rounded-xl shadow-lg max-w-2xl w-full p-6 my-8">
                 <h3 className="text-xl font-bold text-gray-900 mb-4">
                   {showEditDoctor ? 'Edit Doctor' : 'Add New Doctor'}
                 </h3>
                 
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Name
-                    </label>
-                    <input
-                      type="text"
-                      name="name"
-                      value={newDoctor.name}
-                      onChange={handleDoctorInputChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="Enter doctor name"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Specialization
-                    </label>
-                    <input
-                      type="text"
-                      name="specialization"
-                      value={newDoctor.specialization}
-                      onChange={handleDoctorInputChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="Enter specialization"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Department
-                    </label>
-                    <select
-                      name="departmentId"
-                      value={newDoctor.departmentId}
-                      onChange={handleDoctorInputChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <option value="">Select Department</option>
-                      {departments.map(dept => (
-                        <option key={dept.id} value={dept.id}>{dept.name}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
+                  {/* Row 1: Name and Specialization */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Email
+                        Name *
+                      </label>
+                      <input
+                        type="text"
+                        name="name"
+                        value={newDoctor.name}
+                        onChange={handleDoctorInputChange}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="Enter doctor name"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Specialization *
+                      </label>
+                      <input
+                        type="text"
+                        name="specialization"
+                        value={newDoctor.specialization}
+                        onChange={handleDoctorInputChange}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="Enter specialization"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  {/* Row 2: License Number (only for new doctors) and Department */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {showAddDoctor && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          License Number *
+                        </label>
+                        <input
+                          type="text"
+                          name="licenseNumber"
+                          value={newDoctor.licenseNumber}
+                          onChange={handleDoctorInputChange}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="Enter license number"
+                          required
+                        />
+                        <p className="text-xs text-gray-500 mt-1">Required for new doctors</p>
+                      </div>
+                    )}
+                    <div className={showAddDoctor ? '' : 'md:col-span-2'}>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Department *
+                      </label>
+                      <select
+                        name="departmentId"
+                        value={newDoctor.departmentId}
+                        onChange={handleDoctorInputChange}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        required
+                      >
+                        <option value="">Select Department</option>
+                        {departments.map(dept => (
+                          <option key={dept.id} value={dept.id}>{dept.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Row 3: Email and Phone */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Email *
                       </label>
                       <input
                         type="email"
@@ -684,9 +719,9 @@ const AdminDashboard = () => {
                         onChange={handleDoctorInputChange}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                         placeholder="Enter email"
+                        required
                       />
                     </div>
-
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Phone
@@ -702,10 +737,11 @@ const AdminDashboard = () => {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  {/* Row 4: Experience and Consultation Fee */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Experience (years)
+                        Experience (years) *
                       </label>
                       <input
                         type="number"
@@ -714,12 +750,13 @@ const AdminDashboard = () => {
                         onChange={handleDoctorInputChange}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                         placeholder="5"
+                        min="0"
+                        required
                       />
                     </div>
-
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Consultation Fee ($)
+                        Consultation Fee ($) *
                       </label>
                       <input
                         type="number"
@@ -728,19 +765,24 @@ const AdminDashboard = () => {
                         onChange={handleDoctorInputChange}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                         placeholder="150"
+                        min="0"
+                        step="0.01"
+                        required
                       />
                     </div>
                   </div>
 
+                  {/* Row 5: Status (full width) */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Status
+                      Status *
                     </label>
                     <select
                       name="status"
                       value={newDoctor.status}
                       onChange={handleDoctorInputChange}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      required
                     >
                       <option value="Active">Active</option>
                       <option value="On Leave">On Leave</option>
@@ -748,10 +790,10 @@ const AdminDashboard = () => {
                   </div>
                 </div>
 
-                <div className="flex justify-end space-x-3 mt-6">
+                <div className="flex justify-end space-x-3 mt-6 pt-4 border-t border-gray-200">
                   <button
                     onClick={resetDoctorForm}
-                    className="px-4 py-2 text-gray-600 hover:text-gray-800 font-medium"
+                    className="px-4 py-2 text-gray-600 hover:text-gray-800 font-medium border border-gray-300 rounded-lg hover:bg-gray-50"
                   >
                     Cancel
                   </button>
