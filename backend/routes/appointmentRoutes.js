@@ -11,9 +11,10 @@ router.get("/", async (req, res) => {
 
     let query = `
       SELECT a.appointment_id, a.appointment_date, a.appointment_time, a.reason, a.status,
-             p.name as patient_name, p.patient_id,
+             p.name as patient_name, p.patient_id, p.date_of_birth, p.gender,
              d.name as doctor_name, d.specialization,
-             dep.name as department
+             dep.name as department,
+             FLOOR(MONTHS_BETWEEN(SYSDATE, p.date_of_birth) / 12) as age
       FROM appointments a
       JOIN patients p ON a.patient_id = p.patient_id
       JOIN doctors d ON a.doctor_id = d.doctor_id
@@ -39,18 +40,32 @@ router.get("/", async (req, res) => {
 
     console.log("Appointments query result:", result.rows);
 
-    res.json(result.rows.map(row => ({
-      id: row.APPOINTMENT_ID,
-      date: row.APPOINTMENT_DATE,
-      time: row.APPOINTMENT_TIME,
-      reason: row.REASON,
-      status: row.STATUS,
-      patientName: row.PATIENT_NAME,
-      patientId: row.PATIENT_ID,
-      doctorName: row.DOCTOR_NAME,
-      specialization: row.SPECIALIZATION,
-      department: row.DEPARTMENT
-    })));
+    // Modified response structure
+    const response = {
+      appointments: result.rows.map(row => ({
+        id: row.APPOINTMENT_ID,
+        date: row.APPOINTMENT_DATE,
+        time: row.APPOINTMENT_TIME,
+        reason: row.REASON,
+        status: row.STATUS,
+        patientName: row.PATIENT_NAME,
+        patientId: row.PATIENT_ID,
+        age: row.AGE,
+        gender: row.GENDER,
+        doctorName: row.DOCTOR_NAME,
+        specialization: row.SPECIALIZATION,
+        department: row.DEPARTMENT
+      })),
+      doctorProfile: result.rows.length > 0 ? {
+        specialization: result.rows[0].SPECIALIZATION,
+        department: result.rows[0].DEPARTMENT
+      } : {
+        specialization: 'General',
+        department: 'General Medicine'
+      }
+    };
+
+    res.json(response);
 
   } catch (error) {
     console.error("Error fetching appointments:", error);
