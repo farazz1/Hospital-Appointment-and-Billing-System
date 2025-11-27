@@ -5,6 +5,7 @@ import LoadingSpinner from '../components/common/LoadingSpinner';
 const DoctorDashboard = () => {
   const [activeTab, setActiveTab] = useState('upcoming');
   const [appointments, setAppointments] = useState([]);
+  const [doctorProfile, setDoctorProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showPrescriptionModal, setShowPrescriptionModal] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState(null);
@@ -34,7 +35,8 @@ const DoctorDashboard = () => {
     try {
       setLoading(true);
       const response = await appointmentAPI.getAll({ doctorId });
-      setAppointments(response.data);
+      setAppointments(response.data.appointments); // Extract appointments from new response structure
+      setDoctorProfile(response.data.doctorProfile); // Extract doctor profile from new response structure
     } catch (error) {
       console.error('Error fetching appointments:', error);
       alert('Failed to load appointments');
@@ -383,9 +385,14 @@ const DoctorDashboard = () => {
               </p>
             </div>
             
+            {/* Updated Doctor Profile Section */}
             <div className="bg-white rounded-lg shadow p-6 text-center md:text-right">
-              <div className="text-2xl font-bold text-blue-600 mb-2">Cardiology</div>
-              <div className="text-gray-700 font-medium">Cardiovascular Department</div>
+              <div className="text-2xl font-bold text-blue-600 mb-2">
+                {doctorProfile?.specialization || 'Specialization'}
+              </div>
+              <div className="text-gray-700 font-medium">
+                {doctorProfile?.department ? `${doctorProfile.department} Department` : 'Department'}
+              </div>
             </div>
           </div>
         </div>
