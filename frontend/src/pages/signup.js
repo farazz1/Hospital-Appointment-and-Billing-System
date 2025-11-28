@@ -10,7 +10,7 @@ const Signup = () => {
     phone: "",
     age: "",
     gender: "",
-    userType: "doctor"
+    userType: "patient" // Set default to patient only
   });
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
@@ -41,26 +41,15 @@ const Signup = () => {
       <div className="max-w-md w-full space-y-8">
         <div>
           <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-            Create your account
+            Create your Patient Account
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600">
-            Join our hospital management system
+            Join our hospital management system as a patient
           </p>
         </div>
       
       <form onSubmit={handleSubmit} className="bg-white p-8 rounded-lg shadow-md w-full">
-        <div className="mb-4">
-          <label className="block text-gray-700 text-sm font-bold mb-2">User Type</label>
-          <select 
-            name="userType" 
-            value={formData.userType} 
-            onChange={handleChange} 
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="doctor">Doctor</option>
-            <option value="patient">Patient</option>
-          </select>
-        </div>
+        {/* Removed User Type dropdown entirely */}
 
         <div className="mb-4">
           <label className="block text-gray-700 text-sm font-bold mb-2">Full Name</label>
@@ -78,13 +67,13 @@ const Signup = () => {
         <div className="mb-4">
           <label className="block text-gray-700 text-sm font-bold mb-2">Email</label>
           <input 
-            type="text" 
+            type="email" 
             name="email" 
             value={formData.email} 
             onChange={handleChange} 
             required 
             className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" 
-            placeholder="Enter your email (without domain)"
+            placeholder="Enter your email"
           />
         </div>
 
@@ -114,37 +103,37 @@ const Signup = () => {
           />
         </div>
 
-        {formData.userType === "patient" && (
-          <>
-            <div className="mb-4">
-              <label className="block text-gray-700 text-sm font-bold mb-2">Age</label>
-              <input 
-                type="number" 
-                name="age" 
-                value={formData.age} 
-                onChange={handleChange} 
-                required 
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" 
-                placeholder="Enter your age"
-              />
-            </div>
+        {/* Always show patient-specific fields since only patients can sign up */}
+        <div className="mb-4">
+          <label className="block text-gray-700 text-sm font-bold mb-2">Age</label>
+          <input 
+            type="number" 
+            name="age" 
+            value={formData.age} 
+            onChange={handleChange} 
+            required 
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" 
+            placeholder="Enter your age"
+            min="1"
+            max="120"
+          />
+        </div>
 
-            <div className="mb-6">
-              <label className="block text-gray-700 text-sm font-bold mb-2">Gender</label>
-              <select 
-                name="gender" 
-                value={formData.gender} 
-                onChange={handleChange} 
-                required 
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">Select Gender</option>
-                <option value="Male">Male</option>
-                <option value="Female">Female</option>
-              </select>
-            </div>
-          </>
-        )}
+        <div className="mb-6">
+          <label className="block text-gray-700 text-sm font-bold mb-2">Gender</label>
+          <select 
+            name="gender" 
+            value={formData.gender} 
+            onChange={handleChange} 
+            required 
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">Select Gender</option>
+            <option value="Male">Male</option>
+            <option value="Female">Female</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
 
         {message && (
           <div className={`mb-4 p-3 rounded ${
@@ -161,7 +150,7 @@ const Signup = () => {
           disabled={loading}
           className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg focus:outline-none focus:shadow-outline transition duration-200 disabled:opacity-50"
         >
-          {loading ? 'Creating Account...' : 'Sign Up'}
+          {loading ? 'Creating Account...' : 'Sign Up as Patient'}
         </button>
 
         <div className="mt-4 text-center">
