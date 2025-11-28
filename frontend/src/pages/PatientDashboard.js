@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import axios from 'axios';
 import { patientAPI, appointmentAPI, billAPI, doctorAPI } from '../services/api';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 
@@ -41,29 +42,68 @@ const PatientDashboard = () => {
     }
   }, []);
 
-  const fetchPatientData = async (patientId) => {
-    try {
-      setLoading(true);
-      const response = await patientAPI.getById(patientId);
-      setPatientData(response.data);
-      setEditFormData(response.data);
-    } catch (error) {
-      console.error('Error fetching patient data:', error);
-      alert('Failed to load patient data');
-    } finally {
-      setLoading(false);
-    }
-  };
+const fetchPatientData = async (patientId) => {
+  try {
+    setLoading(true);
+    
+    // Try the debug endpoint first
+    const response = await axios.get(`http://localhost:5000/api/patients/${patientId}/debug`);
+    
+    // Or if you want to keep using your API service:
+    // const response = await patientAPI.getById(patientId);
+    
+    setPatientData(response.data);
+    setEditFormData(response.data);
+    console.log('✅ Patient data loaded:', response.data);
+  } catch (error) {
+    console.error('Error fetching patient data:', error);
+    alert('Failed to load patient data');
+  } finally {
+    setLoading(false);
+  }
+};
 
   const fetchAppointments = async (patientId) => {
     try {
       const response = await appointmentAPI.getAll({ patientId });
-      const allAppointments = response.data;
       
-      setAppointments(allAppointments.filter(apt => apt.status === 'Scheduled'));
-      setPastAppointments(allAppointments.filter(apt => apt.status !== 'Scheduled'));
+      console.log('Appointments API Response:', response);
+      console.log('Response data:', response.data);
+      
+      let allAppointments = [];
+      
+      // Handle the actual response structure from your backend
+      if (response.data && Array.isArray(response.data.appointments)) {
+        // Case: { appointments: [], doctorProfile: {} }
+        allAppointments = response.data.appointments;
+      } else if (Array.isArray(response.data)) {
+        // Case: Direct array response (fallback)
+        allAppointments = response.data;
+      } else {
+        console.warn('Unexpected appointments response structure:', response.data);
+        allAppointments = [];
+      }
+      
+      console.log('Processed appointments:', allAppointments);
+      
+      // Now safely filter the appointments
+      const scheduledAppointments = allAppointments.filter(apt => 
+        apt && apt.status === 'Scheduled'
+      );
+      const pastAppointments = allAppointments.filter(apt => 
+        apt && apt.status !== 'Scheduled'
+      );
+      
+      setAppointments(scheduledAppointments);
+      setPastAppointments(pastAppointments);
+      
     } catch (error) {
       console.error('Error fetching appointments:', error);
+      console.error('Error details:', error.response?.data);
+      
+      // Set empty arrays on error
+      setAppointments([]);
+      setPastAppointments([]);
       alert('Failed to load appointments');
     }
   };
@@ -71,9 +111,31 @@ const PatientDashboard = () => {
   const fetchBills = async (patientId) => {
     try {
       const response = await billAPI.getAll({ patientId });
-      setBills(response.data);
+      
+      console.log('Bills API Response:', response);
+      console.log('Response data:', response.data);
+      
+      let billsData = [];
+      
+      // Handle different possible response structures
+      if (Array.isArray(response.data)) {
+        billsData = response.data;
+      } else if (response.data && Array.isArray(response.data.bills)) {
+        billsData = response.data.bills;
+      } else if (response.data && Array.isArray(response.data.data)) {
+        billsData = response.data.data;
+      } else {
+        console.warn('Unexpected bills response structure:', response.data);
+        billsData = [];
+      }
+      
+      console.log('Processed bills:', billsData);
+      setBills(billsData);
+      
     } catch (error) {
       console.error('Error fetching bills:', error);
+      console.error('Error details:', error.response?.data);
+      setBills([]);
       alert('Failed to load bills');
     }
   };
@@ -239,10 +301,6 @@ const PatientDashboard = () => {
     return <LoadingSpinner />;
   }
 
-  // Rest of the component remains the same as your original...
-  // [Include all the JSX from your original PatientDashboard.js here]
-  // The modal components, table components, and main JSX structure
-
   return (
     <div className="min-h-screen bg-gray-50 p-6">
       {/* Header Tabs */}
@@ -295,7 +353,7 @@ const PatientDashboard = () => {
                   <div>
                     <p className="text-sm font-medium text-gray-600">Pending Bills</p>
                     <p className="text-2xl font-bold text-gray-900 mt-2">
-                      ${bills.filter(bill => bill.status === 'Pending').reduce((sum, bill) => sum + bill.amount, 0)}
+                      ${bills.filter(bill => bill.status === 'Pending').reduce((sum, bill) => sum + (bill.amount || 0), 0)}
                     </p>
                     <p className="text-xs text-gray-500 mt-1">Total amount due</p>
                   </div>
@@ -407,7 +465,7 @@ const PatientDashboard = () => {
                     <thead className="bg-gray-50">
                       <tr>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Doctor</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Department</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Specialization</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reason</th>
@@ -418,13 +476,21 @@ const PatientDashboard = () => {
                     <tbody className="bg-white divide-y divide-gray-200">
                       {appointments.map((appointment) => (
                         <tr key={appointment.id} className="hover:bg-gray-50">
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{appointment.doctorName}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{appointment.department}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            {new Date(appointment.date).toLocaleDateString()}
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                            {appointment.doctorName}
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{appointment.time}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{appointment.reason}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {appointment.specialization}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {appointment.date ? new Date(appointment.date).toLocaleDateString() : 'N/A'}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {appointment.time || 'N/A'}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {appointment.reason || 'N/A'}
+                          </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
                               {appointment.status}
@@ -464,7 +530,7 @@ const PatientDashboard = () => {
                     <thead className="bg-gray-50">
                       <tr>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Doctor</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Department</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Specialization</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reason</th>
@@ -474,18 +540,28 @@ const PatientDashboard = () => {
                     <tbody className="bg-white divide-y divide-gray-200">
                       {pastAppointments.map((appointment) => (
                         <tr key={appointment.id} className="hover:bg-gray-50">
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{appointment.doctorName}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{appointment.department}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            {new Date(appointment.date).toLocaleDateString()}
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                            {appointment.doctorName}
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{appointment.time}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{appointment.reason}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {appointment.specialization}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {appointment.date ? new Date(appointment.date).toLocaleDateString() : 'N/A'}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {appointment.time || 'N/A'}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {appointment.reason || 'N/A'}
+                          </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
                               appointment.status === 'Completed' 
                                 ? 'bg-green-100 text-green-800'
-                                : 'bg-red-100 text-red-800'
+                                : appointment.status === 'Cancelled'
+                                ? 'bg-red-100 text-red-800'
+                                : 'bg-gray-100 text-gray-800'
                             }`}>
                               {appointment.status}
                             </span>
@@ -671,7 +747,7 @@ const PatientDashboard = () => {
                       {bills.map((bill) => (
                         <tr key={bill.id} className="hover:bg-gray-50">
                           <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                            {bill.id}
+                            {bill.billId || bill.id}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                             {bill.description}
@@ -680,7 +756,7 @@ const PatientDashboard = () => {
                             {bill.date}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            ${bill.amount.toFixed(2)}
+                            ${bill.amount ? bill.amount.toFixed(2) : '0.00'}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
@@ -694,7 +770,7 @@ const PatientDashboard = () => {
                           <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                             {bill.status === 'Pending' && (
                               <button 
-                                onClick={() => handlePayBill(bill.billId)}
+                                onClick={() => handlePayBill(bill.billId || bill.id)}
                                 className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-medium transition-colors"
                               >
                                 Pay Now
@@ -730,7 +806,7 @@ const PatientDashboard = () => {
                 <div className="flex justify-between items-center py-3 border-b">
                   <span className="text-gray-600 font-medium">Total Amount Due:</span>
                   <span className="text-xl font-bold text-gray-900">
-                    ${bills.filter(bill => bill.status === 'Pending').reduce((total, bill) => total + bill.amount, 0).toFixed(2)}
+                    ${bills.filter(bill => bill.status === 'Pending').reduce((total, bill) => total + (bill.amount || 0), 0).toFixed(2)}
                   </span>
                 </div>
               </div>

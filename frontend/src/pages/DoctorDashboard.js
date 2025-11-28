@@ -22,28 +22,65 @@ const DoctorDashboard = () => {
 
   useEffect(() => {
     const user = JSON.parse(localStorage.getItem('user'));
-    if (user) {
+    console.log("🟡 User from localStorage:", user);
+    
+    if (user && user.profileId) {
       setDoctorInfo({
         name: user.name,
         profileId: user.profileId
       });
       fetchAppointments(user.profileId);
+    } else {
+      console.error("❌ No user found in localStorage");
+      setLoading(false);
     }
   }, []);
 
-  const fetchAppointments = async (doctorId) => {
-    try {
-      setLoading(true);
-      const response = await appointmentAPI.getAll({ doctorId });
-      setAppointments(response.data.appointments); // Extract appointments from new response structure
-      setDoctorProfile(response.data.doctorProfile); // Extract doctor profile from new response structure
-    } catch (error) {
-      console.error('Error fetching appointments:', error);
-      alert('Failed to load appointments');
-    } finally {
-      setLoading(false);
+const fetchAppointments = async (doctorId) => {
+  try {
+    console.log("🟡 Fetching appointments for doctor:", doctorId);
+    setLoading(true);
+    const response = await appointmentAPI.getAll({ doctorId });
+    
+    console.log("✅ Full API Response:", response);
+    console.log("✅ Response data:", response.data);
+    
+    // Handle both response structures for compatibility
+    let appointmentsData = [];
+    let doctorProfileData = null;
+    
+    if (Array.isArray(response.data)) {
+      // If response is direct array (old structure)
+      appointmentsData = response.data;
+      // Try to extract doctor profile from first appointment
+      if (response.data.length > 0) {
+        doctorProfileData = {
+          specialization: response.data[0].specialization,
+          department: response.data[0].department
+        };
+      }
+    } else {
+      // If response is object with appointments and doctorProfile (new structure)
+      appointmentsData = response.data?.appointments || [];
+      doctorProfileData = response.data?.doctorProfile || null;
     }
-  };
+    
+    console.log("✅ Appointments data:", appointmentsData);
+    console.log("✅ Doctor profile:", doctorProfileData);
+    
+    setAppointments(appointmentsData);
+    setDoctorProfile(doctorProfileData);
+    
+  } catch (error) {
+    console.error('❌ Error fetching appointments:', error);
+    console.error('❌ Error response:', error.response);
+    alert('Failed to load appointments');
+    setAppointments([]);
+    setDoctorProfile(null);
+  } finally {
+    setLoading(false);
+  }
+};
 
   const handleMarkCompleted = (appointment) => {
     setSelectedAppointment(appointment);
@@ -126,8 +163,8 @@ const DoctorDashboard = () => {
     setViewingPrescription(null);
   };
 
-  const upcomingAppointments = appointments.filter(apt => apt.status === 'Scheduled');
-  const completedAppointments = appointments.filter(apt => apt.status === 'Completed');
+  const upcomingAppointments = appointments?.filter(apt => apt.status === 'Scheduled') || [];
+  const completedAppointments = appointments?.filter(apt => apt.status === 'Completed') || [];
 
   if (loading) {
     return <LoadingSpinner />;
