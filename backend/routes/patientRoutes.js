@@ -2,7 +2,27 @@ const express = require("express");
 const router = express.Router();
 const getConnection = require("../dbConfig");
 
-// Get all patients
+// Helper function to safely extract data from Oracle results
+function safeExtractData(oracleRow) {
+  // Create a completely clean object
+  const cleanData = {};
+  
+  // Manually extract each property to avoid circular references
+  if (oracleRow.PATIENT_ID !== undefined) cleanData.PATIENT_ID = oracleRow.PATIENT_ID;
+  if (oracleRow.NAME !== undefined) cleanData.NAME = String(oracleRow.NAME || '');
+  if (oracleRow.EMAIL !== undefined) cleanData.EMAIL = String(oracleRow.EMAIL || '');
+  if (oracleRow.DATE_OF_BIRTH !== undefined) cleanData.DATE_OF_BIRTH = oracleRow.DATE_OF_BIRTH;
+  if (oracleRow.GENDER !== undefined) cleanData.GENDER = String(oracleRow.GENDER || '');
+  if (oracleRow.BLOOD_TYPE !== undefined) cleanData.BLOOD_TYPE = String(oracleRow.BLOOD_TYPE || '');
+  if (oracleRow.PHONE !== undefined) cleanData.PHONE = String(oracleRow.PHONE || '');
+  if (oracleRow.ADDRESS !== undefined) cleanData.ADDRESS = String(oracleRow.ADDRESS || '');
+  if (oracleRow.EMERGENCY_CONTACT !== undefined) cleanData.EMERGENCY_CONTACT = String(oracleRow.EMERGENCY_CONTACT || '');
+  if (oracleRow.MEDICAL_HISTORY !== undefined) cleanData.MEDICAL_HISTORY = String(oracleRow.MEDICAL_HISTORY || '');
+  
+  return cleanData;
+}
+
+// Get all patients - WITH CLOB FIX
 router.get("/", async (req, res) => {
   let connection;
   try {
@@ -10,7 +30,8 @@ router.get("/", async (req, res) => {
 
     const result = await connection.execute(
       `SELECT p.patient_id, p.name, p.date_of_birth, p.gender, p.blood_type, 
-              p.phone, p.address, p.emergency_contact, p.medical_history,
+              p.phone, p.address, p.emergency_contact, 
+              NVL(DBMS_LOB.SUBSTR(p.medical_history, 4000, 1), '') as medical_history, -- CLOB FIX
               u.email
        FROM patients p
        JOIN users u ON p.user_id = u.user_id
@@ -19,21 +40,27 @@ router.get("/", async (req, res) => {
       { outFormat: require('oracledb').OBJECT }
     );
 
-    console.log("Patients query result:", result.rows);
+    console.log("Patients query result count:", result.rows.length);
 
-    res.json(result.rows.map(row => ({
-      id: row.PATIENT_ID,
-      name: row.NAME,
-      email: row.EMAIL,
-      dateOfBirth: formatDate(row.DATE_OF_BIRTH),
-      age: calculateAge(row.DATE_OF_BIRTH),
-      gender: row.GENDER,
-      bloodType: row.BLOOD_TYPE,
-      phone: row.PHONE,
-      address: row.ADDRESS,
-      emergencyContact: row.EMERGENCY_CONTACT,
-      medicalHistory: row.MEDICAL_HISTORY
-    })));
+    // Use safe extraction
+    const patients = result.rows.map(row => {
+      const cleanRow = safeExtractData(row);
+      return {
+        id: cleanRow.PATIENT_ID,
+        name: cleanRow.NAME,
+        email: cleanRow.EMAIL,
+        dateOfBirth: formatDate(cleanRow.DATE_OF_BIRTH),
+        age: calculateAge(cleanRow.DATE_OF_BIRTH),
+        gender: cleanRow.GENDER,
+        bloodType: cleanRow.BLOOD_TYPE,
+        phone: cleanRow.PHONE,
+        address: cleanRow.ADDRESS,
+        emergencyContact: cleanRow.EMERGENCY_CONTACT,
+        medicalHistory: cleanRow.MEDICAL_HISTORY
+      };
+    });
+
+    res.json(patients);
 
   } catch (error) {
     console.error("Error fetching patients:", error);
@@ -48,16 +75,19 @@ router.get("/", async (req, res) => {
   }
 });
 
-// Get patient by ID
+// Get patient by ID - WITH CLOB FIX
 router.get("/:id", async (req, res) => {
   let connection;
   try {
     const { id } = req.params;
+    console.log("🔍 Fetching patient with ID:", id);
+    
     connection = await getConnection();
 
     const result = await connection.execute(
       `SELECT p.patient_id, p.name, p.date_of_birth, p.gender, p.blood_type, 
-              p.phone, p.address, p.emergency_contact, p.medical_history,
+              p.phone, p.address, p.emergency_contact, 
+              NVL(DBMS_LOB.SUBSTR(p.medical_history, 4000, 1), '') as medical_history, -- CLOB FIX
               u.email
        FROM patients p
        JOIN users u ON p.user_id = u.user_id
@@ -66,28 +96,116 @@ router.get("/:id", async (req, res) => {
       { outFormat: require('oracledb').OBJECT }
     );
 
+    console.log("Query result rows:", result.rows.length);
+
     if (result.rows.length === 0) {
+      console.log("❌ Patient not found:", id);
       return res.status(404).json({ error: "Patient not found" });
     }
 
-    const patient = result.rows[0];
-    res.json({
-      id: patient.PATIENT_ID,
-      name: patient.NAME,
-      email: patient.EMAIL,
-      dateOfBirth: formatDate(patient.DATE_OF_BIRTH),
-      age: calculateAge(patient.DATE_OF_BIRTH),
-      gender: patient.GENDER,
-      bloodType: patient.BLOOD_TYPE,
-      phone: patient.PHONE,
-      address: patient.ADDRESS,
-      emergencyContact: patient.EMERGENCY_CONTACT,
-      medicalHistory: patient.MEDICAL_HISTORY
+    // Use the safe extraction function
+    const cleanPatient = safeExtractData(result.rows[0]);
+    
+    console.log("✅ Clean patient data extracted:", {
+      id: cleanPatient.PATIENT_ID,
+      hasName: !!cleanPatient.NAME,
+      hasEmail: !!cleanPatient.EMAIL,
+      medicalHistoryType: typeof cleanPatient.MEDICAL_HISTORY,
+      medicalHistoryLength: cleanPatient.MEDICAL_HISTORY ? cleanPatient.MEDICAL_HISTORY.length : 0
     });
 
+    const patientData = {
+      id: cleanPatient.PATIENT_ID,
+      name: cleanPatient.NAME,
+      email: cleanPatient.EMAIL,
+      dateOfBirth: formatDate(cleanPatient.DATE_OF_BIRTH),
+      age: calculateAge(cleanPatient.DATE_OF_BIRTH),
+      gender: cleanPatient.GENDER,
+      bloodType: cleanPatient.BLOOD_TYPE,
+      phone: cleanPatient.PHONE,
+      address: cleanPatient.ADDRESS,
+      emergencyContact: cleanPatient.EMERGENCY_CONTACT,
+      medicalHistory: cleanPatient.MEDICAL_HISTORY
+    };
+
+    console.log("📤 Sending patient data for ID:", id);
+    res.json(patientData);
+
   } catch (error) {
-    console.error("Error fetching patient:", error);
-    res.status(500).json({ error: "Failed to fetch patient", details: error.message });
+    console.error("❌ Error fetching patient:", error);
+    res.status(500).json({ 
+      error: "Failed to fetch patient", 
+      details: error.message 
+    });
+  } finally {
+    if (connection) {
+      try { 
+        await connection.close(); 
+        console.log("✅ Database connection closed");
+      } catch (err) { 
+        console.error("Error closing connection:", err); 
+      }
+    }
+  }
+});
+
+// Emergency backup route - WITH CLOB FIX
+router.get("/:id/debug", async (req, res) => {
+  let connection;
+  try {
+    const { id } = req.params;
+    console.log("🐛 DEBUG: Fetching patient with ID:", id);
+    
+    connection = await getConnection();
+
+    const result = await connection.execute(
+      `SELECT p.patient_id, p.name, p.date_of_birth, p.gender, p.blood_type, 
+              p.phone, p.address, p.emergency_contact, 
+              NVL(DBMS_LOB.SUBSTR(p.medical_history, 4000, 1), '') as medical_history, -- CLOB FIX
+              u.email
+       FROM patients p
+       JOIN users u ON p.user_id = u.user_id
+       WHERE p.patient_id = :id`,
+      { id: parseInt(id) },
+      { outFormat: require('oracledb').OBJECT } // Keep OBJECT format for consistency
+    );
+
+    console.log("🐛 DEBUG: Query result:", {
+      rows: result.rows ? result.rows.length : 'no rows',
+      medicalHistorySample: result.rows && result.rows[0] ? 
+        (typeof result.rows[0].MEDICAL_HISTORY + ': ' + 
+         (result.rows[0].MEDICAL_HISTORY ? 
+          result.rows[0].MEDICAL_HISTORY.substring(0, 50) + '...' : 'empty')) : 'no data'
+    });
+
+    if (!result.rows || result.rows.length === 0) {
+      return res.status(404).json({ error: "Patient not found" });
+    }
+
+    const row = result.rows[0];
+    const patientData = {
+      id: row.PATIENT_ID,
+      name: String(row.NAME || ''),
+      email: String(row.EMAIL || ''),
+      dateOfBirth: formatDate(row.DATE_OF_BIRTH),
+      age: calculateAge(row.DATE_OF_BIRTH),
+      gender: String(row.GENDER || ''),
+      bloodType: String(row.BLOOD_TYPE || ''),
+      phone: String(row.PHONE || ''),
+      address: String(row.ADDRESS || ''),
+      emergencyContact: String(row.EMERGENCY_CONTACT || ''),
+      medicalHistory: String(row.MEDICAL_HISTORY || '')
+    };
+
+    console.log("🐛 DEBUG: Successfully created patient data with medical history type:", typeof patientData.medicalHistory);
+    res.json(patientData);
+
+  } catch (error) {
+    console.error("🐛 DEBUG: Error:", error);
+    res.status(500).json({ 
+      error: "Failed to fetch patient", 
+      details: error.message 
+    });
   } finally {
     if (connection) {
       try { await connection.close(); } catch (err) { console.error(err); }
@@ -95,14 +213,14 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-// Update patient information - THIS WAS MISSING!
+// Update patient information - NO CHANGES NEEDED HERE
 router.put("/:id", async (req, res) => {
   let connection;
   try {
     const { id } = req.params;
     const { name, dateOfBirth, gender, bloodType, phone, address, emergencyContact, medicalHistory } = req.body;
     
-    console.log("🟡 Updating patient:", id, { name, dateOfBirth, gender, bloodType, phone, address, emergencyContact });
+    console.log("🟡 Updating patient:", id);
     
     connection = await getConnection();
 
@@ -145,7 +263,7 @@ router.put("/:id", async (req, res) => {
   }
 });
 
-// Update user email (if needed)
+// Update user email - NO CHANGES NEEDED HERE
 router.put("/:id/email", async (req, res) => {
   let connection;
   try {
@@ -156,7 +274,6 @@ router.put("/:id/email", async (req, res) => {
     
     connection = await getConnection();
 
-    // First get the user_id from patient
     const patientResult = await connection.execute(
       `SELECT user_id FROM patients WHERE patient_id = :id`,
       { id: parseInt(id) },
@@ -169,7 +286,6 @@ router.put("/:id/email", async (req, res) => {
 
     const userId = patientResult.rows[0].USER_ID;
 
-    // Update user email
     await connection.execute(
       `UPDATE users SET email = :email WHERE user_id = :userId`,
       { email, userId }

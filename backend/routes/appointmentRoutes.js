@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const getConnection = require("../dbConfig");
 
-// Get all appointments
+// Get all appointments - WITH CLOB FIX
 router.get("/", async (req, res) => {
   let connection;
   try {
@@ -10,11 +10,21 @@ router.get("/", async (req, res) => {
     connection = await getConnection();
 
     let query = `
-      SELECT a.appointment_id, a.appointment_date, a.appointment_time, a.reason, a.status,
-             p.name as patient_name, p.patient_id, p.date_of_birth, p.gender,
-             d.name as doctor_name, d.specialization,
-             dep.name as department,
-             FLOOR(MONTHS_BETWEEN(SYSDATE, p.date_of_birth) / 12) as age
+      SELECT 
+        a.appointment_id,
+        a.appointment_date,
+        a.appointment_time,
+        a.reason,
+        a.status,
+        p.name as patient_name,
+        p.patient_id,
+        p.date_of_birth,
+        p.gender,
+        NVL(DBMS_LOB.SUBSTR(p.medical_history, 4000, 1), '') as medical_history,
+        d.name as doctor_name,
+        d.specialization,
+        dep.name as department,
+        FLOOR(MONTHS_BETWEEN(SYSDATE, p.date_of_birth) / 12) as age
       FROM appointments a
       JOIN patients p ON a.patient_id = p.patient_id
       JOIN doctors d ON a.doctor_id = d.doctor_id
@@ -40,32 +50,47 @@ router.get("/", async (req, res) => {
 
     console.log("Appointments query result:", result.rows);
 
-    // Modified response structure
-    const response = {
-      appointments: result.rows.map(row => ({
-        id: row.APPOINTMENT_ID,
-        date: row.APPOINTMENT_DATE,
-        time: row.APPOINTMENT_TIME,
-        reason: row.REASON,
-        status: row.STATUS,
-        patientName: row.PATIENT_NAME,
-        patientId: row.PATIENT_ID,
-        age: row.AGE,
-        gender: row.GENDER,
-        doctorName: row.DOCTOR_NAME,
-        specialization: row.SPECIALIZATION,
-        department: row.DEPARTMENT
-      })),
-      doctorProfile: result.rows.length > 0 ? {
-        specialization: result.rows[0].SPECIALIZATION,
-        department: result.rows[0].DEPARTMENT
-      } : {
-        specialization: 'General',
-        department: 'General Medicine'
+    // Get doctor profile separately if doctorId is provided
+    let doctorProfile = null;
+    if (doctorId) {
+      const doctorResult = await connection.execute(
+        `SELECT d.specialization, dep.name as department 
+         FROM doctors d 
+         JOIN departments dep ON d.department_id = dep.department_id 
+         WHERE d.doctor_id = :doctorId`,
+        { doctorId: parseInt(doctorId) },
+        { outFormat: require('oracledb').OBJECT }
+      );
+      
+      if (doctorResult.rows.length > 0) {
+        doctorProfile = {
+          specialization: doctorResult.rows[0].SPECIALIZATION,
+          department: doctorResult.rows[0].DEPARTMENT
+        };
       }
-    };
+    }
 
-    res.json(response);
+    const appointments = result.rows.map(row => ({
+      id: row.APPOINTMENT_ID,
+      date: formatDate(row.APPOINTMENT_DATE),
+      time: row.APPOINTMENT_TIME,
+      reason: row.REASON,
+      status: row.STATUS,
+      patientName: row.PATIENT_NAME,
+      patientId: row.PATIENT_ID,
+      age: row.AGE,
+      gender: row.GENDER,
+      medicalHistory: row.MEDICAL_HISTORY,
+      doctorName: row.DOCTOR_NAME,
+      specialization: row.SPECIALIZATION,
+      department: row.DEPARTMENT
+    }));
+
+    // Return both appointments and doctor profile
+    res.json({
+      appointments: appointments,
+      doctorProfile: doctorProfile
+    });
 
   } catch (error) {
     console.error("Error fetching appointments:", error);
@@ -80,6 +105,7 @@ router.get("/", async (req, res) => {
   }
 });
 
+// REST OF YOUR EXISTING ROUTES REMAIN EXACTLY THE SAME...
 router.post("/", async (req, res) => {
   let connection;
   try {
@@ -88,7 +114,6 @@ router.post("/", async (req, res) => {
     
     connection = await getConnection();
 
-    // Try the insert
     const result = await connection.execute(
       `INSERT INTO appointments (appointment_id, patient_id, doctor_id, appointment_date, appointment_time, reason, status)
        VALUES (SEQ_APPOINTMENTS.NEXTVAL, :patientId, :doctorId, TO_DATE(:apptDate, 'YYYY-MM-DD'), :time, :reason, 'Scheduled')
@@ -116,12 +141,9 @@ router.post("/", async (req, res) => {
     console.error("❌ Error booking appointment:", error);
     if (connection) await connection.rollback();
     
-    // IMPROVED ERROR HANDLING FOR THE TRIGGER
     let userMessage = "Failed to book appointment";
     
-    // Check for the specific trigger error
     if (error.message.includes('20001')) {
-      // Extract the actual message from the trigger
       userMessage = extractTriggerMessage(error.message);
     } else if (error.message.includes('ORA-00001')) {
       userMessage = "This time slot is no longer available. Please choose a different time.";
@@ -139,18 +161,6 @@ router.post("/", async (req, res) => {
   }
 });
 
-// Helper function to extract the trigger message
-function extractTriggerMessage(errorMessage) {
-  // Oracle error format: ORA-20001: Doctor already has an appointment at this time
-  const match = errorMessage.match(/ORA-20001:\s*(.*)/);
-  if (match && match[1]) {
-    return match[1]; // Returns "Doctor already has an appointment at this time"
-  }
-  
-  // Fallback if regex doesn't match
-  return "Doctor already has an appointment at this time. Please choose a different time slot.";
-}
-
 // Mark appointment as completed
 router.put("/:id/complete", async (req, res) => {
   let connection;
@@ -160,7 +170,6 @@ router.put("/:id/complete", async (req, res) => {
     
     connection = await getConnection();
 
-    // First check if appointment exists
     const checkResult = await connection.execute(
       `SELECT * FROM appointments WHERE appointment_id = :id`,
       { id: parseInt(id) },
@@ -171,9 +180,6 @@ router.put("/:id/complete", async (req, res) => {
       return res.status(404).json({ success: false, message: "Appointment not found" });
     }
 
-    console.log("🟡 Found appointment:", checkResult.rows[0]);
-
-    // Update appointment status
     await connection.execute(
       `UPDATE appointments SET status = 'Completed' WHERE appointment_id = :id`,
       { id: parseInt(id) }
@@ -272,5 +278,19 @@ router.get("/availability", async (req, res) => {
     }
   }
 });
+
+// Helper function to extract the trigger message
+function extractTriggerMessage(errorMessage) {
+  const match = errorMessage.match(/ORA-20001:\s*(.*)/);
+  if (match && match[1]) {
+    return match[1];
+  }
+  return "Doctor already has an appointment at this time. Please choose a different time slot.";
+}
+
+function formatDate(date) {
+  if (!date) return '';
+  return new Date(date).toISOString().split('T')[0];
+}
 
 module.exports = router;
