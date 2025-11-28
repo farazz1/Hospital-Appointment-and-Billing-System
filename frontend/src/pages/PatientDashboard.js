@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { patientAPI, appointmentAPI, billAPI, doctorAPI } from '../services/api';
+import { patientAPI, appointmentAPI, billAPI, doctorAPI, prescriptionAPI } from '../services/api';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 
 const PatientDashboard = () => {
@@ -31,6 +31,10 @@ const PatientDashboard = () => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [availableDoctors, setAvailableDoctors] = useState([]);
   const [availableTimeSlots, setAvailableTimeSlots] = useState([]);
+
+  // Prescription Viewing States
+  const [viewingPrescription, setViewingPrescription] = useState(null);
+  const [showViewPrescriptionModal, setShowViewPrescriptionModal] = useState(false);
 
   useEffect(() => {
     const user = JSON.parse(localStorage.getItem('user'));
@@ -156,6 +160,23 @@ const fetchPatientData = async (patientId) => {
       console.error('Error fetching doctors:', error);
       alert('Failed to load doctors');
     }
+  };
+
+  // Prescription Viewing Functions
+  const handleViewPrescription = async (appointment) => {
+    try {
+      const response = await prescriptionAPI.getByAppointment(appointment.id);
+      setViewingPrescription(response.data);
+      setShowViewPrescriptionModal(true);
+    } catch (error) {
+      console.error('Error fetching prescription:', error);
+      alert('Prescription not found for this appointment');
+    }
+  };
+
+  const handleCloseViewPrescription = () => {
+    setShowViewPrescriptionModal(false);
+    setViewingPrescription(null);
   };
 
   // Edit Modal Functions
@@ -519,7 +540,7 @@ const fetchPatientData = async (patientId) => {
               )}
             </div>
 
-            {/* Past Appointments Table */}
+            {/* Past Appointments Table - UPDATED WITH PRESCRIPTION COLUMN */}
             <div className="bg-white rounded-lg shadow-sm p-6">
               <h3 className="text-xl font-semibold text-gray-900 mb-2">Past Appointments</h3>
               <p className="text-gray-600 mb-6">Your appointment history</p>
@@ -535,6 +556,7 @@ const fetchPatientData = async (patientId) => {
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reason</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Prescription</th>
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
@@ -565,6 +587,18 @@ const fetchPatientData = async (patientId) => {
                             }`}>
                               {appointment.status}
                             </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                            {appointment.status === 'Completed' ? (
+                              <button
+                                onClick={() => handleViewPrescription(appointment)}
+                                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-medium transition-colors"
+                              >
+                                View Prescription
+                              </button>
+                            ) : (
+                              <span className="text-gray-400 text-sm">No prescription</span>
+                            )}
                           </td>
                         </tr>
                       ))}
@@ -814,6 +848,101 @@ const fetchPatientData = async (patientId) => {
           </div>
         )}
       </div>
+
+      {/* View Prescription Modal */}
+      {showViewPrescriptionModal && viewingPrescription && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
+              <h2 className="text-xl font-bold text-gray-900">Prescription Details</h2>
+              <p className="text-gray-600 mt-1">
+                Prescription for {viewingPrescription.patientName}
+              </p>
+            </div>
+
+            <div className="p-6 border-b border-gray-200">
+              <div className="bg-gray-50 rounded-lg p-6">
+                <div className="grid grid-cols-2 gap-6">
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Patient Name</label>
+                      <p className="text-gray-900 font-semibold text-lg">{viewingPrescription.patientName}</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Age / Gender</label>
+                      <p className="text-gray-900 font-semibold text-lg">{viewingPrescription.age} years / {viewingPrescription.gender}</p>
+                    </div>
+                  </div>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Patient ID</label>
+                      <p className="text-gray-900 font-semibold text-lg">{viewingPrescription.patientId}</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Appointment Date</label>
+                      <p className="text-gray-900 font-semibold text-lg">
+                        {new Date(viewingPrescription.appointmentDate).toLocaleDateString()} at {viewingPrescription.appointmentTime}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Prescribed Medicines</h3>
+              {viewingPrescription.medicines && viewingPrescription.medicines.length > 0 ? (
+                <div className="space-y-4">
+                  {viewingPrescription.medicines.map((medicine, index) => (
+                    <div key={index} className="bg-gray-50 rounded-lg p-4">
+                      <div className="grid grid-cols-3 gap-4">
+                        <div>
+                          <span className="text-sm font-medium text-gray-500">Medicine Name</span>
+                          <p className="text-gray-900 font-semibold">{medicine.name}</p>
+                        </div>
+                        <div>
+                          <span className="text-sm font-medium text-gray-500">Dosage</span>
+                          <p className="text-gray-900 font-semibold">{medicine.dosage}</p>
+                        </div>
+                        <div>
+                          <span className="text-sm font-medium text-gray-500">Duration</span>
+                          <p className="text-gray-900 font-semibold">{medicine.duration}</p>
+                        </div>
+                      </div>
+                      {medicine.instructions && (
+                        <div className="mt-2">
+                          <span className="text-sm font-medium text-gray-500">Instructions</span>
+                          <p className="text-gray-900">{medicine.instructions}</p>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-gray-500">No medicines prescribed</p>
+              )}
+            </div>
+
+            <div className="p-6 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Doctor's Notes</h3>
+              <div className="bg-gray-50 rounded-lg p-4">
+                <p className="text-gray-900 whitespace-pre-wrap">
+                  {viewingPrescription.notes || "No notes provided"}
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-gray-50 px-6 py-4 border-t border-gray-200 flex justify-end">
+              <button
+                onClick={handleCloseViewPrescription}
+                className="px-6 py-2 bg-black hover:bg-gray-800 text-white font-medium rounded-lg transition duration-200"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Edit Personal Information Modal */}
       {showEditModal && (
